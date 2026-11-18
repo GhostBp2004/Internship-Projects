@@ -1,0 +1,145 @@
+import pandas as pd
+import numpy as np
+import re
+import matplotlib.pyplot as plt
+import seaborn as sns
+import nltk
+
+from nltk.corpus import stopwords
+from nltk.stem import WordNetLemmatizer
+
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    confusion_matrix
+)
+
+nltk.download('stopwords')
+nltk.download('wordnet')
+nltk.download('omw-1.4')
+
+df = pd.read_csv("tweets.csv")
+
+def convert_label(label):
+    label = str(label).lower().strip()
+
+    mapping = {
+        '0': 'negative',
+        '1': 'neutral',
+        '2': 'neutral',
+        '4': 'positive',
+        'positive': 'positive',
+        'negative': 'negative',
+        'neutral': 'neutral'
+    }
+
+    return mapping.get(label)
+
+df['sentiment'] = df['sentiment'].apply(convert_label)
+
+df.dropna(subset=['text', 'sentiment'], inplace=True)
+
+stop_words = set(stopwords.words('english'))
+lemmatizer = WordNetLemmatizer()
+
+stop_words -= {'not', 'no', 'nor'}
+
+def clean_text(text):
+
+    text = str(text).lower()
+
+    text = re.sub(r'http\S+|www\S+', '', text)
+
+    text = re.sub(r'@\w+', '', text)
+
+    text = re.sub(r'#', '', text)
+
+    text = re.sub(r'[^a-z\s]', ' ', text)
+
+    words = text.split()
+
+    # Remove stopwords and apply lemmatization
+    words = [
+        lemmatizer.lemmatize(word)
+        for word in words
+        if word not in stop_words
+    ]
+
+    return ' '.join(words)
+
+
+df['clean_text'] = df['text'].apply(clean_text)
+
+df = df[df['clean_text'].str.strip() != '']
+
+tfidf = TfidfVectorizer(
+    max_features=5000,
+    ngram_range=(1, 2)
+)
+
+X = tfidf.fit_transform(df['clean_text'])
+y = df['sentiment']
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y,
+    test_size=0.2,
+    random_state=42,
+    stratify=y
+)
+
+model = LogisticRegression(max_iter=1000)
+
+model.fit(X_train, y_train)
+
+predictions = model.predict(X_test)
+
+print("Accuracy:",
+      accuracy_score(y_test, predictions))
+
+print("\nClassification Report:")
+print(classification_report(y_test, predictions))
+
+cm = confusion_matrix(
+    y_test,
+    predictions,
+    labels=['negative', 'neutral', 'positive']
+)
+
+sns.heatmap(
+    cm,
+    annot=True,
+    fmt='d',
+    cmap='Blues',
+    xticklabels=['Negative', 'Neutral', 'Positive'],
+    yticklabels=['Negative', 'Neutral', 'Positive']
+)
+
+plt.xlabel("Predicted Sentiment")
+plt.ylabel("Actual Sentiment")
+plt.title("Sentiment Analysis Confusion Matrix")
+plt.show()
+
+def predict_sentiment(tweet):
+
+    cleaned = clean_text(tweet)
+
+    vector = tfidf.transform([cleaned])
+
+    result = model.predict(vector)[0]
+
+    probabilities = model.predict_proba(vector)[0]
+
+    confidence = max(probabilities) * 100
+
+    print("\nTweet:", tweet)
+    print("Predicted Sentiment:", result)
+    print("Confidence:", round(confidence, 2), "%")
+
+
+
+predict_sentiment("I absolutely love this product!")
+predict_sentiment("This is the worst experience ever.")
+predict_sentiment("The product arrived today.")
